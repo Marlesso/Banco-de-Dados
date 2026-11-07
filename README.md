@@ -11,14 +11,14 @@ O sistema permite gerenciar livros, exemplares físicos, clientes, bibliotecári
 
 | Nome | Descrição | Atributos |
 |------|-----------|-----------|
-| **Livro** | informações gerais da obra | id_livro, titulo, ISBN, ano, editora |
-| **Exemplar** | cópia física de um livro | id_exemplar, id_livro, codigo_patrimonio, estado_conservacao |
-| **Autor** | autor(es) das obras | id_autor, nome |
-| **Cliente** | usuário que realiza empréstimos | id_cliente, nome, matricula, endereco |
-| **Bibliotecário** | funcionário responsável pelo atendimento | id_bibliotecario, nome, matricula_funcional, id_setor |
-| **Setor** | separações organizacional da biblioteca | id_setor, nome |
-| **Categoria** | classificação temática dos livros | id_categoria, nome, id_categoria_pai |
-| **Empréstimo** | registro de retirada/devolução | id_emprestimo, id_cliente, id_exemplar, id_bibliotecario, data_emprestimo, data_devolucao |
+| **Livro** | informações gerais da obra | idLivro, titulo, ISBN, ano, editora |
+| **Exemplar** | cópia física de um livro | idExemplar, idLivro, codigo_patrimonio, estado_conservacao |
+| **Autor** | autor(es) das obras | idAutor, nome |
+| **Cliente** | usuário que realiza empréstimos | idCliente, nome, matricula, endereco |
+| **Bibliotecário** | funcionário responsável pelo atendimento | idBibliotecario, nome, matricula |
+| **Setor** | separações organizacional da biblioteca | idSetor, nome, idBibliotecario |
+| **Categoria** | classificação temática dos livros | idCategoria, nome, idCategoria_pai |
+| **Empréstimo** | registro de retirada/devolução | idEmprestimo, idCliente, idExemplar, idBibliotecario, data_emprestimo, data_devolucao |
 
 ## Relacionamentos:
  
