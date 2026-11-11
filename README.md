@@ -17,6 +17,10 @@ Projeto acadêmico da disciplina de Banco de Dados 1, com objetivo de modelar e 
    - [6.4 Procedure](#64-procedure)
    - [6.5 Triggers](#65-triggers)
    - [6.6 Views](#66-views)
+   - [6.7 Comandos DML (UPDATE, INSERT e DELETE)](#67-comandos-dml-update-insert-e-delete)
+   - [6.8 Implementações extras](#68-implementações-extras)
+   - [6.9 Usuários e ROLE](#69-usuários-e-role)
+   - [6.10 Buscas com JOIN](#610-buscas-com-join)
 7. [Situação da entrega](#situação-da-entrega)
 
 ## Descrição:
@@ -68,6 +72,11 @@ O arquivo 'BibliotecaDeAlexandria.sql' está organizado em seções tituladas di
 * CRIAÇÃO DAS `TABLES`
 * INSERÇÃO DE DADOS
 * CRIAÇÃO DE `FUNCTION`, `PROCEDURE`, `TRIGGERS` e `VIEWS`
+* COMANDOS DE MANIPULAÇÃO DE DADOS (DML)
+* IMPLEMENTAÇÕES EXTRAS: `CHECK`, ÍNDICES e TRANSAÇÃO
+* USUÁRIOS E `ROLE`
+* BUSCAS COM `JOIN` (1:1, 1:N e N:M)
+* CONSULTAS DE VERIFICAÇÃO
 
 ## 6.1 Criação das tabelas (DDL)
  
@@ -115,7 +124,9 @@ Detalhes da declaração:
 ## 6.4 Procedure
  
 ### `registrar_devolucao(emprestimoID, OUT dias_atraso)`
-Registra a devolução de um empréstimo gravando a data de hoje em `data_devolucao` e retorna, pelo parâmetro de saída, quantos dias de atraso ele teve (usando a function `dias_de_atraso`). Exibe um aviso quando o empréstimo não é encontrado ou já foi devolvido.
+Registra a devolução de um empréstimo gravando a data de hoje em `data_devolucao` e retorna, pelo parâmetro de saída, quantos dias de atraso ele teve (usando a function `dias_de_atraso`). Quando o empréstimo não é encontrado ou já foi devolvido, exibe um aviso, **não altera nada** e retorna `dias_atraso` como `NULL`.
+
+**Correção:** na versão anterior os avisos eram exibidos, mas a procedure continuava e executava o `UPDATE` mesmo assim (sobrescrevendo a data de um empréstimo já devolvido). Agora as verificações usam `IF / ELSEIF / ELSE`, e o `UPDATE` só roda quando o empréstimo existe e está em aberto.
  
 **Por que foi criada:** padroniza o registro da devolução e já entrega ao atendimento a informação de atraso, sem a aplicação precisar repetir a conta.
  
@@ -149,13 +160,80 @@ Junta `Emprestimo`, `Cliente`, `Exemplar`, `Livro` e `Bibliotecario`, exibindo c
 Mostra, para cada livro, o total de exemplares, quantos estão emprestados e quantos estão disponíveis.
  
 **Por que foi criada:** responde a uma pergunta frequente no atendimento ("tem exemplar livre deste livro?") sem precisar escrever a consulta com `LEFT JOIN` e `GROUP BY` toda vez.
+
+## 6.7 Comandos DML (UPDATE, INSERT e DELETE)
+
+DML (*Data Manipulation Language*) são os comandos que alteram os **dados** das tabelas, sem mudar a estrutura delas: `INSERT` (incluir), `UPDATE` (alterar) e `DELETE` (remover). Além da carga inicial (6.2), o script tem uma seção com situações reais do dia a dia da biblioteca. Ela fica **depois dos triggers**, para que as alterações em `Emprestimo` já atualizem o `Exemplar` automaticamente.
+
+| # | Comando | O que faz | Motivo da utilização |
+|---|---------|-----------|----------------------|
+| 1 | `UPDATE Exemplar` | Marca como indisponíveis os exemplares com empréstimo em aberto | Os empréstimos da carga inicial foram inseridos **antes** de os triggers existirem, então a coluna `disponivel` ficou desatualizada. O `UPDATE` corrige o estado atual; daqui em diante os triggers cuidam dela |
+| 2 | `UPDATE Cliente` | Preenche o endereço do cliente Rafael Almeida | O cliente foi cadastrado sem endereço. Completar um cadastro é alterar o registro existente, não criar outro |
+| 3 | `INSERT INTO Emprestimo` | Registra um novo empréstimo (exemplar 1007 - *1984*) | É a operação principal da biblioteca. Dispara o trigger `trg_emprestimo_ai`, que deixa o exemplar indisponível |
+| 4 | `UPDATE Emprestimo` | Grava a `data_devolucao` do empréstimo 6 | Devolver não cria um registro novo, apenas completa o empréstimo. Dispara o trigger `trg_emprestimo_au`, que devolve o exemplar ao acervo |
+| 5 | `UPDATE Exemplar` | Muda o estado de conservação do exemplar 1004 para *Desgastado* | Na conferência da devolução foi constatado desgaste; o dado precisa refletir a situação física da cópia |
+| 6 | `DELETE FROM Cliente` | Remove um cliente cadastrado em duplicidade | Cadastro feito por engano. O `WHERE` confere que ele não tem empréstimos, respeitando o `RESTRICT` da FK (o histórico nunca é apagado) |
+| 7 | `DELETE FROM Categoriza` | Remove o vínculo errado *Duna - Fantasia* | Corrige a classificação apagando só a linha da tabela associativa; o livro e a categoria continuam existindo |
+
+**Cuidados adotados:**
+- Todo `UPDATE` e `DELETE` tem `WHERE` filtrando por chave ou campo `UNIQUE` (`idEmprestimo`, `matricula`, `codigo_patrimonio`), para não alterar/apagar outras linhas por acidente.
+- Os `DELETE` só são usados em dados que não fazem parte do histórico. Empréstimos nunca são apagados: a devolução é registrada com `UPDATE`.
+
+## 6.8 Implementações extras
+
+### `CHECK` (restrições de integridade)
+- `chk_emprestimo_datas`: a `data_devolucao` não pode ser anterior à `data_emprestimo`.
+- `chk_livro_ano`: o ano de publicação precisa ser positivo.
+
+**Por que:** a regra fica no próprio banco, então nenhum `INSERT`/`UPDATE` (da aplicação ou manual) consegue gravar uma data impossível. Foram adicionadas com `ALTER TABLE`, mostrando também a alteração de uma tabela já existente. Requer MySQL 8.0.16+ (versões anteriores aceitam a sintaxe, mas ignoram a regra).
+
+### Índices
+- `idx_livro_titulo` em `Livro(titulo)` e `idx_cliente_nome` em `Cliente(nome)`.
+
+**Por que:** são as buscas mais comuns no balcão ("procurar livro pelo título", "procurar cliente pelo nome"). Sem índice, o banco lê a tabela inteira a cada busca. Colunas `PRIMARY KEY`, `UNIQUE` e `FOREIGN KEY` já têm índice automático, por isso não foram repetidas.
+
+### Transação (`START TRANSACTION`, `COMMIT`, `ROLLBACK`)
+O script registra um empréstimo dentro de uma transação, percebe que o cliente está errado e executa `ROLLBACK`: o empréstimo e a alteração feita pelo trigger no `Exemplar` são desfeitos juntos. Em seguida o empréstimo correto é gravado com `COMMIT`.
+
+**Por que:** garante que um conjunto de alterações seja gravado por inteiro ou não seja gravado (atomicidade), evitando, por exemplo, um exemplar marcado como emprestado sem empréstimo correspondente.
+
+## 6.9 Usuários e ROLE
+
+Foi criada a role **`atendente`** e dois usuários, **`helena`** e **`roberto`** (bibliotecários do balcão), ligados a ela com `GRANT 'atendente' TO ...`. O `SET DEFAULT ROLE` faz a role ficar ativa automaticamente quando eles entram.
+
+| Permissão da role `atendente` | Onde |
+|-------------------------------|------|
+| `SELECT` | todas as tabelas e views do banco |
+| `INSERT`, `UPDATE` | `Emprestimo` e `Cliente` (registrar empréstimos/devoluções e cadastrar clientes) |
+| `EXECUTE` | procedure `registrar_devolucao` |
+
+O atendente **não** tem `DELETE` nem permissão para alterar a estrutura (`ALTER`, `DROP`), protegendo o histórico de empréstimos.
+
+**Por que usar uma ROLE:** as permissões são definidas uma única vez, na role, e não usuário por usuário. Para dar acesso a um novo funcionário basta um `GRANT 'atendente'`; se a regra mudar, altera-se só a role e todos os usuários ligados a ela passam a seguir a nova regra.
+
+Como usuários e roles ficam fora do banco, o `DROP DATABASE` do início do script não os apaga; por isso há `DROP USER IF EXISTS` e `DROP ROLE IF EXISTS` antes de criá-los, permitindo rodar o script várias vezes.
+
+> As senhas (`Helena@2026`, `Roberto@2026`) são apenas para o trabalho acadêmico. O script usa a sintaxe do MySQL 8; no MariaDB o comando equivalente é `SET DEFAULT ROLE 'atendente' FOR 'helena'@'localhost';` (um usuário por comando).
+
+## 6.10 Buscas com JOIN
+
+| Relacionamento | Consulta | O que responde |
+|----------------|----------|----------------|
+| **1:1** Bibliotecário - Setor | `Bibliotecario LEFT JOIN Setor LEFT JOIN Emprestimo` | Setor de cada bibliotecário e quantos empréstimos ele atendeu. O `LEFT JOIN` mostra também quem não tem setor (Tiago Nunes) |
+| **1:N** Livro - Exemplar | `Livro JOIN Exemplar` | Total de exemplares de cada livro, quantos estão disponíveis e os códigos de patrimônio |
+| **1:N** Cliente - Empréstimo | `Cliente JOIN Emprestimo JOIN Exemplar JOIN Livro` | Histórico de cada cliente: total de empréstimos, quantos estão em aberto e quais livros pegou |
+| **N:M** Livro - Autor e Livro - Categoria | `Livro JOIN Escreve JOIN Autor JOIN Categoriza JOIN Categoria LEFT JOIN Categoria (pai)` | Ficha do livro com todos os autores (ex.: coautoria de *Belas Maldições*) e categorias com a categoria pai (ex.: *Ficção Científica > Distopia*) |
+| **N:M** Autor - Livro | `Autor JOIN Escreve JOIN Exemplar LEFT JOIN Emprestimo` | Autores mais procurados: quantos livros têm no acervo e quantas vezes foram emprestados |
+
+Recursos usados: `INNER JOIN` (só registros com correspondência), `LEFT JOIN` (mantém registros sem correspondência), auto-relacionamento (`Categoria` com ela mesma), `GROUP BY` com `COUNT`/`SUM` e `GROUP_CONCAT` (junta vários valores em uma linha; `DISTINCT` evita repetições quando há dois N:M na mesma consulta).
  
 ## Situação da entrega
  
 - [x] Script SQL do modelo (banco e tabelas)
 - [x] Inserção de dados (mínimo de 5 registros por tabela)
 - [x] Function, Procedure, Triggers e Views com explicação do porquê de cada objeto
-- [~] Documentação no README
-- [ ] Comandos `UPDATE` e `DELETE` com explicação do motivo
-- [ ] Dois usuários relacionados por uma ROLE
-- [ ] Buscas com JOIN (1:1, 1:N e N:M)
+- [x] Documentação no README
+- [x] Comandos DML (`UPDATE`, `INSERT` e `DELETE`) com explicação do motivo
+- [x] Implementações extras: `CHECK`, índices e transação
+- [x] Dois usuários relacionados por uma ROLE
+- [x] Buscas com JOIN (1:1, 1:N e N:M)
